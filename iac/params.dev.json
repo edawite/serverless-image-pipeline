@@ -1,0 +1,10 @@
+{
+  "InputBucketName": "image-pipeline-dev-input",
+  "OutputBucketName": "image-pipeline-dev-output",
+  "ThumbnailSizes": "128,512",
+  "WebPQuality": 85,
+  "LambdaMemorySize": 512,
+  "LambdaTimeout": 30,
+  "LambdaProvisionedConcurrency": 0,
+  "InputPrefix": "uploads/"
+}
