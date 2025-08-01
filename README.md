@@ -1,5 +1,5 @@
 # Serverless Image Processing Pipeline
-
+this readme.md is created by gpt
 This repository provides a fully reproducible, **resume‑grade** serverless
 image processing pipeline on AWS. When an image is uploaded to an input
 S3 bucket, the system automatically generates WebP thumbnails at
@@ -8,7 +8,7 @@ production‑ready and includes infrastructure‑as‑code (AWS SAM), CI/CD
 workflows, observability via CloudWatch, robust error handling and
 least‑privilege security.
 
-## ✨ Highlights
+##  Highlights
 
 - **Event‑driven:** Uploading to the `uploads/` prefix in the input bucket
   triggers a Lambda function via S3 notifications.
@@ -26,7 +26,7 @@ least‑privilege security.
   Makefile, Ruff + Black configuration, and GitHub Actions workflows for
   linting, testing and deploying.
 
-## 📦 Repo Layout
+##  Repo Layout
 
 ```
 serverless-image-pipeline/
