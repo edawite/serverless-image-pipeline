@@ -1,0 +1,166 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Transform: AWS::Serverless-2016-10-31
+Description: >
+  Serverless Image Processing Pipeline. This SAM template provisions a pair of
+  encrypted S3 buckets, an SQS dead‑letter queue, and a Python Lambda
+  function that generates WebP thumbnails when new objects are uploaded to
+  the input bucket. All resources are configured with least‑privilege IAM
+  policies and public access is explicitly blocked on buckets.
+
+Parameters:
+  InputBucketName:
+    Type: String
+    Description: Name of the S3 bucket where original images are uploaded.
+  OutputBucketName:
+    Type: String
+    Description: Name of the S3 bucket where thumbnails are stored.
+  ThumbnailSizes:
+    Type: String
+    Default: "128,512"
+    Description: >
+      Comma‑separated list of thumbnail widths (in pixels). The handler will
+      preserve aspect ratio when resizing.
+  WebPQuality:
+    Type: Number
+    Default: 85
+    Description: Quality setting (1–100) for WebP thumbnails. Higher values
+      improve fidelity at the cost of larger files.
+  LambdaMemorySize:
+    Type: Number
+    Default: 512
+    Description: Amount of memory (in MB) allocated to the Lambda function.
+      Increasing memory also increases CPU, which reduces thumbnail latency.
+  LambdaTimeout:
+    Type: Number
+    Default: 30
+    Description: Timeout (in seconds) for the Lambda function. Use a sensible
+      limit to handle large images without incurring runaway costs.
+  LambdaProvisionedConcurrency:
+    Type: Number
+    Default: 0
+    Description: >
+      Provisioned concurrency units for the Lambda function. Set to 0 to disable.
+      Provisioned concurrency warms a number of Lambda instances to reduce
+      cold‑start latency under predictable workloads.
+  InputPrefix:
+    Type: String
+    Default: uploads/
+    Description: >
+      Only trigger the Lambda on objects with this prefix in the input bucket.
+      Use a trailing slash to scope to a folder.
+
+Resources:
+  InputBucket:
+    Type: AWS::S3::Bucket
+    Properties:
+      BucketName: !Ref InputBucketName
+      NotificationConfiguration:
+        LambdaConfigurations:
+          - Event: s3:ObjectCreated:Put
+            Filter:
+              S3Key:
+                Rules:
+                  - Name: prefix
+                    Value: !Ref InputPrefix
+            Function: !GetAtt ThumbnailFunction.Arn
+      PublicAccessBlockConfiguration:
+        BlockPublicAcls: true
+        BlockPublicPolicy: true
+        IgnorePublicAcls: true
+        RestrictPublicBuckets: true
+      BucketEncryption:
+        ServerSideEncryptionConfiguration:
+          - ServerSideEncryptionByDefault:
+              SSEAlgorithm: AES256
+
+  OutputBucket:
+    Type: AWS::S3::Bucket
+    Properties:
+      BucketName: !Ref OutputBucketName
+      PublicAccessBlockConfiguration:
+        BlockPublicAcls: true
+        BlockPublicPolicy: true
+        IgnorePublicAcls: true
+        RestrictPublicBuckets: true
+      BucketEncryption:
+        ServerSideEncryptionConfiguration:
+          - ServerSideEncryptionByDefault:
+              SSEAlgorithm: AES256
+
+  DeadLetterQueue:
+    Type: AWS::SQS::Queue
+    Properties:
+      QueueName: !Sub "${AWS::StackName}-dlq"
+      # Use AWS managed key for SQS encryption. For higher security, supply a
+      # KMS key ARN instead.
+      KmsMasterKeyId: alias/aws/sqs
+
+  ThumbnailFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      FunctionName: !Sub "${AWS::StackName}-thumbnail"
+      Description: >
+        Processes images uploaded to the input bucket and writes WebP thumbnails
+        to the output bucket. Utilises PIL/Pillow for conversion and records
+        CloudWatch metrics via the aws‑embedded‑metrics SDK.
+      Handler: handler.lambda_handler
+      Runtime: python3.11
+      CodeUri: ../lambda
+      MemorySize: !Ref LambdaMemorySize
+      Timeout: !Ref LambdaTimeout
+      Environment:
+        Variables:
+          OUTPUT_BUCKET: !Ref OutputBucketName
+          THUMB_SIZES: !Ref ThumbnailSizes
+          WEBP_QUALITY: !Ref WebPQuality
+          # The DLQ URL is injected here to support manual fallback; the
+          # function will attempt to publish failed records to this URL if
+          # configured. When omitted, the Lambda DLQ handles asynchronous
+          # failures automatically.
+          DLQ_URL: !Ref DeadLetterQueue
+      Policies:
+        # Grant read access to objects in the input bucket. Avoid granting
+        # wildcard permissions; specify a single bucket by name.
+        - S3ReadPolicy:
+            BucketName: !Ref InputBucketName
+        # Grant write access to objects in the output bucket.
+        - S3WritePolicy:
+            BucketName: !Ref OutputBucketName
+        # Permit sending messages to the DLQ on failure. The policy is scoped
+        # to the specific queue by name. Consider a more restrictive resource
+        # ARN in future revisions.
+        - SQSSendMessagePolicy:
+            QueueName: !GetAtt DeadLetterQueue.QueueName
+        # Allow publishing of custom metrics to CloudWatch. This is required
+        # by aws‑embedded‑metrics. The policy is permissive by design but only
+        # permits PutMetricData actions.
+        - CloudWatchPutMetricPolicy: {}
+      Events:
+        S3PutEvent:
+          Type: S3
+          Properties:
+            Bucket: !Ref InputBucketName
+            Events: s3:ObjectCreated:Put
+            Filter:
+              S3Key:
+                Rules:
+                  - Name: prefix
+                    Value: !Ref InputPrefix
+      DeadLetterQueue:
+        Type: SQS
+        TargetArn: !GetAtt DeadLetterQueue.Arn
+      # Limit the number of concurrent executions to mitigate cost surprises
+      ReservedConcurrentExecutions: 10
+      ProvisionedConcurrencyConfig:
+        ProvisionedConcurrentExecutions: !Ref LambdaProvisionedConcurrency
+
+Outputs:
+  InputBucketNameOut:
+    Description: Name of the input bucket.
+    Value: !Ref InputBucketName
+  OutputBucketNameOut:
+    Description: Name of the output bucket.
+    Value: !Ref OutputBucketName
+  DeadLetterQueueUrl:
+    Description: URL of the Dead Letter Queue.
+    Value: !Ref DeadLetterQueue
