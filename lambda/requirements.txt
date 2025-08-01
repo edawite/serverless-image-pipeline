@@ -1,0 +1,6 @@
+# Runtime dependencies for the thumbnail Lambda function. Boto3 and
+# botocore are excluded because they are preinstalled in the Lambda
+# execution environment.
+
+Pillow==10.3.0
+aws-embedded-metrics>=1.2.0
