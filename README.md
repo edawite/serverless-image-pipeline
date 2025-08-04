@@ -1,5 +1,4 @@
 # Serverless Image Processing Pipeline
-this readme.md is created by gpt
 This repository provides a fully reproducible, **resume‑grade** serverless
 image processing pipeline on AWS. When an image is uploaded to an input
 S3 bucket, the system automatically generates WebP thumbnails at
